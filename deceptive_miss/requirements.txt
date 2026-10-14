@@ -1,0 +1,6 @@
+pybaseball
+pandas
+numpy
+pyarrow
+matplotlib
+jupyter
