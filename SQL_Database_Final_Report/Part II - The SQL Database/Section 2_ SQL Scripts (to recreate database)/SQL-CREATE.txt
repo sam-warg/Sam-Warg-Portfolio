@@ -1,0 +1,220 @@
+/*
+* Part II Section 2 - SQL CREATE 
+*/
+
+/* ------- CREATE TABLES -------*/
+
+//creates the table containing the current inventory
+create table Current_Inventory 
+(inventory_id char(11) not null,
+ primary key(inventory_id));
+ 
+//creates the table containing the items that have been ordered
+create table Items_Ordered
+(receipt_no char(10) not null,
+ arrival_date date not null,
+ type varchar(15) not null,
+ name varchar(30),
+ no_copies int not null,
+ primary key(receipt_no));
+
+//creates the table denoting the items that have been entered into the inventory
+create table Items_Entered_Into_Current_Inventory
+(receipt_no char(10) not null,
+ inventory_id char(11) not null,
+ primary key(receipt_no, inventory_id),
+ foreign key(receipt_no) references Items_Ordered(receipt_no) ON UPDATE CASCADE,
+ foreign key(inventory_id) references Current_Inventory(inventory_id) ON UPDATE CASCADE);
+ 
+//creates the table containing all the patrons of the library
+create table Patron
+(email char(30) not null,
+ Lname varchar(30) not null,
+ Fname varchar(30) not null,
+ address varchar(50) not null,
+ primary key(email));
+ 
+//creates the table of patron library cards
+create table Library_Card
+(card_no char(16) not null,
+ issue_date date not null,
+ activation_status varchar(15) not null,
+ patron_email char(30) not null,
+ primary key(card_no),
+ foreign key(patron_email) references Patron(email) ON UPDATE CASCADE);
+
+//creates the table that represents the inventory checked out by patrons
+create table Patron_Checksout_Item
+(patron_email varchar(30) not null,
+ inventory_id char(11) not null,
+ checkout_date date not null,
+ primary key(patron_email, inventory_id),
+ foreign key(patron_email) references Patron(email) ON UPDATE CASCADE,
+ foreign key(inventory_id) references Current_Inventory(inventory_id) ON UPDATE CASCADE);
+ 
+//creates the table that represents the inventory returned by patrons
+create table Patron_Returns_Item
+(patron_email varchar(30) not null,
+ inventory_id char(11) not null,
+ return_date date not null,
+ primary key(patron_email, inventory_id),
+ foreign key(patron_email) references Patron(email) ON UPDATE CASCADE,
+ foreign key(inventory_id) references Current_Inventory(inventory_id) ON UPDATE CASCADE);
+
+//creates the table for all the equipment the library owns
+create table Equipment
+(model_no char(10) not null,
+ manufacturer varchar(30) not null,
+ num_available int not null,
+ inventory_id char(11) not null,
+ primary key(model_no),
+ foreign key(inventory_id) references Current_Inventory(inventory_id) ON UPDATE CASCADE);
+ 
+//creates the table for all the printers owned
+create table Printer
+(model_no char(10) not null,
+ color_type varchar(5) not null,
+ type_of_job varchar(15) not null,
+ cost float not null,
+ primary key(model_no),
+ foreign key(model_no) references Equiptment(model_no) ON UPDATE CASCADE);
+ 
+//creates the table for all the computers owned
+create table Computer
+(model_no char(10) not null,
+ operating_system varchar(30) not null,
+ primary key(model_no),
+ foreign key(model_no) references Equiptment(model_no) ON UPDATE CASCADE); 
+ 
+//created the table that contains all the media owned 
+create table Media
+(license char(11) not null,
+ location char(11) not null,
+ name varchar(30) not null,
+ description varchar(10) not null,
+ genre varchar(30) not null,
+ length int not null,
+ year int not null,
+ num_phys_avail int not null,
+ num_online_avail int not null,
+ inventory_id char(11) not null,
+ primary key(license),
+ foreign key(inventory_id) references Current_Inventory(inventory_id) ON UPDATE CASCADE);
+
+//creates the table for artists of albums that the library owns
+create table Artist
+(artist_id char(11) not null,
+ name varchar(30),
+ primary key(artist_id));
+ 
+//creates the table for all the albums owned by the library 
+create table Album
+(license char(11) not null,
+ record_label varchar(30),
+ primary key(license),
+ foreign key(license) references Media(license) ON UPDATE CASCADE);
+
+//creates the table containing all the track from the albums the library owns
+create table Track
+(album_license char(11) not null,
+ track_no int not null,
+ name varchar(30) not null,
+ length int not null,
+ feature_artist_id char(11),
+ primary key(album_license, track_no),
+ foreign key(album_license) references Album(license) ON UPDATE CASCADE);
+ 
+//creates a table connecting all the artists to their albums
+create table Artist_Authors_Album
+(artist_id char(11) not null,
+ album_license char(11) not null,
+ primary key(artist_id, album_license),
+ foreign key(artist_id) references Artist(artist_id) ON UPDATE CASCADE,
+ foreign key(album_license) references Album(license) ON UPDATE CASCADE);
+ 
+//creates a table of the authors whose books the library owns
+create table Author
+(author_id char(11) not null,
+ Lname varchar(30) not null, 
+ Fname varchar(30) not null,
+ primary key(author_id));
+ 
+//creates a table of all the audiobooks in library inventory
+create table Audiobook
+(license char(11) not null,
+ chapters int,
+ primary key(license),
+ foreign key(license) references Media(license) ON UPDATE CASCADE);
+ 
+//creates a table connecting the authors to their audiobooks
+create table Author_Writes_Audiobook
+(author_id char(11) not null,
+ audiobook_license char(11) not null,
+ primary key(author_id, audiobook_license),
+ foreign key(author_id) references Author(author_id) ON UPDATE CASCADE,
+ foreign key(audiobook_license) references Audiobook(license) ON UPDATE CASCADE);
+ 
+//creates a table for all the directors that have movies in the library
+create table Director
+(director_id char(11) not null,
+ Lname varchar(30) not null,
+ Fname varchar(30) not null,
+ primary key(director_id));
+ 
+//creates a table for all the actors that appear in movies the library owns
+create table Actor
+(actor_id char(11) not null,
+ Lname varchar(30) not null,
+ Fname varchar(30) not null,
+ primary key(actor_id));
+ 
+//creates a table for all the movies currently in inventory
+create table Movie
+(license char(11) not null,
+ rating varchar(5) not null,
+ primary key(license),
+ foreign key(license) references Media(license) ON UPDATE CASCADE);
+ 
+//creates a table connecting actors to the movies they star in
+create table Actors_Star_in_Movies
+(movie_license char(11) not null,
+ actor_id char(11) not null,
+ role_type varchar(15),
+ primary key(actor_id, movie_license),
+ foreign key(movie_license) references Movie(license) ON UPDATE CASCADE,
+ foreign key(actor_id) references Actor(actor_id) ON UPDATE CASCADE);
+ 
+//creates a table connecting directors to the movies they direct
+create table Director_Directs_Movie
+(director_id char(11) not null,
+ movie_license char(11) not null,
+ primary key(director_id, movie_license),
+ foreign key(director_id) references Director(director_id) ON UPDATE CASCADE
+ foreign key(movie_license) references Movie(license) ON UPDATE CASCADE);
+
+/* ------- CREATE VIEWS ------- */
+
+//create a view with all the orders which have arrived on January 1, 2022 and total number of orders
+Create view OrdersFromCBUS (Num_Copies, Name, Type, Arrival_Date, Receipt_No, Total_Orders)
+As SELECT No_Copies, Name, Type, Arrival_Date, Receipt_No, COUNT(Arrival_Date) AS Total_Orders
+From Items_Ordered JOIN Current_Inventory
+Where arrival_date= "2022-01-01";  
+
+//creates a view that shows all ordered audiobooks by year and displays the average number of online copies available for them
+Create view Audiobooks_Ordered (Name, Genre, Year, Average_Online_Copies_Available)
+AS SELECT Media.Name, Genre, Year, AVG(Num_Online_Avail)
+FROM Audiobook JOIN Items_Ordered ON Type = "Audiobook", Media
+WHERE Media.license = Audiobook.license
+GROUP BY Media.Name
+ORDER BY Year DESC;
+
+/* ------- CREATE INDEXES ------- */
+
+//Indexing media items by year
+CREATE INDEX mediaByYear ON Media(year);
+
+//Indexing by the inventory_id
+CREATE INDEX checkoutIndex ON Patron_Checksout_Item(inventory_id);
+
+//Indexing by Media length
+CREATE INDEX mediaByLength ON Media(length);

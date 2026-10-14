@@ -1,0 +1,55 @@
+//Part II Section 2 - SQL INSERT/DELETE
+
+/* ------- INSERT ------- */
+
+//INSERT a new track
+INSERT INTO TRACK VALUES (‘480890800-X’, 1, ‘Wanna Be Startin’ Somethin’’, ‘00:06:02’, NULL);
+
+
+//INSERT a new album
+INSERT INTO ALBUM VALUES (‘480890800-X’, ‘Epic Records’);
+
+//INSERT a new movie
+INSERT INTO MOVIE VALUES (‘143682775-2’, ‘G’);
+
+//INSERT a new audiobook
+INSERT INTO AUDIOBOOK VALUES (‘359111305-0’, 37);
+
+//INSERT new media
+INSERT INTO MEDIA VALUES (‘480890800-X’, ‘968.2999’, ‘Thriller’, ‘Album’, ‘pop’, ‘00:42:16’, ‘1982’, 1, 12, ‘855-72-7222’); 
+
+//INSERT into current inventory 
+INSERT INTO CURRENT_INVENTORY VALUES (‘855-72-7222’);
+
+//INSERT a new artist
+INSERT INTO ARTIST VALUES (‘102-51-4825’, ‘Michael Jackson’);
+
+//INSERT a new patron
+INSERT INTO PATRON VALUES (‘flainge0@vinaora.com’, ‘Lainge’, ‘Franchot’, ‘3425 Kings Circle’);
+
+/* ------- DELETE ------- */
+
+//DELETE single track
+DELETE FROM TRACK WHERE album_license = ‘480890800-X’ AND track_no = 1;
+
+//DELETE album
+DELETE FROM ALBUM WHERE license = ‘480890800-X’;
+
+//DELETE movie
+DELETE FROM MOVIE WHERE license = ‘143682775-2’;
+
+//DELETE audiobook
+DELETE FROM AUDIOBOOK WHERE license = ‘359111305-0’;
+
+//DELETE media
+DELETE FROM MEDIA WHERE license = ‘480890800-X’;
+
+//DELETE current inventory
+DELETE FROM CURRENT_INVENTORY WHERE inventory_id = ‘855-72-7222’;
+
+//DELETE artist
+DELETE FROM ARTIST WHERE artist_id = ‘102-51-4825’;
+
+//DELETE patron
+DELETE FROM PATRON WHERE email = ‘flainge0@vinaora.com’;
+

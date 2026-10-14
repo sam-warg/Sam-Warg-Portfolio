@@ -1,0 +1,153 @@
+/*
+* Part II Section 2 - SQL QUERIES
+*/
+
+/* ------- Queries from CP4 4.3 ------- */
+
+//Find the titles of all tracks by ARTIST released before YEAR
+DECLARE @ArtistID AS VARCHAR(9)
+DECLARE @ChosenYear AS DATE
+SELECT T.name
+FROM Artist AS AR, Track AS T, Album AS A, Artist_Authors_Album as AAA
+WHERE AR.artist_id = AAA.Artist_id
+AND AAA.Album_license = A.License 
+AND AAA.Album_Location = A.Location
+AND T.Album_license = A.License
+AND T.Album_location - A.Location
+AND A.Artist_id = @ArtistID
+AND A.Year < @ChosenYear
+
+//Give all the movies and their date of their checkout from a single patron (you choose how to designate the patron)
+SELECT name,checkout_date
+FROM Media JOIN Patron_Checksout_Item ON
+Patron_Checksout_Item.patron_email = 'flainge0@vinaora.com'
+AND description='Movie' AND Patron_Checksout_Item.inventory_id=Media.inventory_id
+
+//List all the albums and their unique identifiers with less than 2 copies held by the library. 
+SELECT name, license
+FROM Media
+WHERE Media.num_phys_avail < 2 AND Media.description = 'Album'
+
+//Give all the patrons who checked out a movie by ACTOR and the movies they checked out.
+SELECT email, name
+FROM (SELECT Patron, Patron_Checksout_Item
+FROM Media JOIN Actors_star_in_Movies ON Actors_star_in_Movies.actor_id = '504-27-9924' AND Actors_star_in_Movies.movie_license = Media.license
+
+
+//Find the total number of albums checked out by a single patron (you choose how to designate the patron)
+SELECT COUNT(name)
+FROM Patron_Checksout_Item JOIN Media on Patron_Checksout_Item.patron_email = 'flainge0@vinaora.com'
+AND description='Album' AND Patron_Checksout_Item.inventory_id=Media.inventory_id
+
+//Find the patron who has checked out the most videos and the total number of videos they have checked out. 
+SELECT patron_email,MAX(num)
+FROM(SELECT patron_email,COUNT(*) AS num
+FROM Patron_Checksout_Item JOIN Media on description='Movie' AND Patron_Checksout_Item.inventory_id=Media.inventory_id
+GROUP BY patron_email)
+
+/* ------- Queries from CP4 4.4 ------- */
+
+//The complete list of items checked out and which patron they are checked out by
+SELECT Media.License, Patron.Lname, Patron.Fname, Checkouts.Checkout_date
+FROM (Patron JOIN Checkouts ON Patron.Patron_id = Checkouts.Patron_id) JOIN Media ON Checkouts.Item_license = Media.license);
+
+//Total number of albums an artist has
+SELECT Artist.name, COUNT(Album_license)
+FROM (Artist JOIN Artist_Authors_Album ON Artist.Artist_id = Artist_Authors_Album.Artist_id) JOIN Album ON Album.Album_id = Artist_Authors_Album.Album_id)
+GROUP BY Artist.Artist_id
+
+//The complete list of album checkouts and the patron checking them out.
+SELECT Patron.Lname, Patron.Fname, Checkout.Item_id, Checkout.Checkout_date 
+FROM (Patron JOIN Checkouts ON Patron.Patron_id = Checkouts.Patron_id) JOIN Computer ON Checkouts.item_id = Computer.Computer_no)
+
+/* ------- Queries from CP5 5.4 ------- */
+
+//Provide a list of patron names, along with the total combined running time of all the movies they have checked out. 
+SELECT P.Lname, P.Fname, time(SUM(strftime('%s', M.length)), 'unixepoch') AS Movie_running_time_seconds
+FROM Patron AS P JOIN Patron_Checksout_Item AS PC ON P.email = PC.patron_email
+   JOIN Media AS M ON M.inventory_id = PC.inventory_id
+   JOIN Movie AS MO ON M.license = MO.license
+GROUP BY P.email;
+
+//Provide a list of patron names and email addresses for patrons who have checked out more albums than the average patron. 
+SELECT P.email, P.Lname, P.Fname
+FROM (Patron AS P JOIN Patron_Checksout_Item AS PC ON P.email = PC.patron_email
+ 		JOIN Media AS M ON PC.inventory_id = M.inventory_id
+   		JOIN Album AS A ON M.license = A.license)
+   		GROUP BY P.email
+   		HAVING COUNT(A.license) >
+     		(SELECT AVG(Album_count)
+       		FROM (SELECT P.email, COUNT(A.license) AS Album_count
+FROM (Patron AS P JOIN Patron_Checksout_Item AS PC ON P.email = PC.patron_email
+       		JOIN Media AS M ON PC.inventory_id = M.inventory_id
+       		JOIN Album AS A ON M.license = A.license)
+       		GROUP BY P.email));
+
+//Provide a list of the movies in the database and associated total copies lent to patrons, sorted from the movie that has been lent the most to the movies that has been lent the least.
+SELECT Me.name, COUNT(PC.patron_email) AS Checkout_count
+FROM Movie AS Mo JOIN Media AS Me ON Mo.license = Me.license JOIN Patron_Checksout_Item AS PC ON PC.inventory_id = Me.inventory_id
+GROUP BY Me.license
+ORDER BY COUNT(PC.patron_email) DESC;
+
+//Provide a list of the albums in the database and associated totals for copies checked out to customers, sorted from the ones that have been checked out the highest amount to the ones checked out the lowest.
+SELECT Me.name, COUNT(PC.patron_email) AS Checkout_count
+FROM Album AS A JOIN Media AS Me ON A.license = Me.license JOIN Patron_Checksout_Item AS PC ON PC.inventory_id = Me.inventory_id
+GROUP BY Me.license
+ORDER BY COUNT(PC.patron_email) DESC;
+
+//Find the most popular actor in the database (i.e. the one who has had the most lent movies)
+SELECT A.Fname, A.Lname, COUNT(PC.patron_email) AS Checkout_count
+FROM Actors_Star_in_Movies AS AM JOIN Media AS Me ON AM.movie_license = Me.license
+ JOIN Patron_Checksout_Item AS PC ON PC.inventory_id = Me.inventory_id
+ JOIN Actor AS A ON AM.actor_id = A.actor_id
+GROUP BY A.actor_id
+ORDER BY COUNT(PC.patron_email) DESC
+LIMIT 1;
+
+//Find the most listened to artist in the database (use the running time of the album and number of times the album has been lent out to calculate)
+SELECT A.name, Listen_time
+FROM Artist AS A JOIN Artist_Authors_Album AS AA ON A.artist_id = AA.artist_id
+JOIN (SELECT M.license, M.name, (strftime('%s', M.length) - strftime('%s', '2000-01-01')) * COUNT(PC.patron_email) AS Listen_time
+FROM Media AS M JOIN Patron_Checksout_Item AS PC ON M.inventory_id = PC.inventory_id
+GROUP BY M.license) AS Album_listen_time ON Album_listen_time.license = AA.album_license
+GROUP BY A.artist_id
+ORDER BY SUM(Listen_time) DESC
+LIMIT 1;
+
+//Provide a list of customer information for patrons who have checked out anything by the most watched actors in the database. 
+SELECT P.email, P.Lname, P.Fname, P.address
+FROM Patron_Checksout_Item AS PC JOIN Patron AS P ON P.email = PC.patron_email
+   JOIN MEDIA AS M ON M.inventory_id = PC.inventory_id
+   JOIN Actors_Star_in_Movies AS ASM ON ASM.movie_license = M.license
+WHERE ASM.actor_id IN (
+   SELECT A.actor_id
+   FROM Actor AS A JOIN Actors_Star_in_Movies AS ASM ON A.actor_id = ASM.actor_id
+       JOIN (SELECT M.license, M.name, (strftime('%s', M.length) - strftime('%s', '2000-01-01')) * COUNT(PC.patron_email) AS Watch_time
+       FROM Media AS M JOIN Patron_Checksout_Item AS PC ON M.inventory_id = PC.inventory_id
+       GROUP BY M.license) AS Movie_watch_time ON Movie_watch_time.license = ASM.movie_license
+   GROUP BY A.actor_id
+   ORDER BY SUM(Watch_time) DESC
+   LIMIT 1
+);
+
+//Provide a list of artists who authored the albums checked out by customers who have checked out more albums than the average customer.
+SELECT A.name
+FROM Patron_Checksout_Item AS PC JOIN Media AS M ON PC.inventory_id = M.inventory_id
+   JOIN Artist_Authors_Album AS AA ON AA.album_license = M.license
+   JOIN Artist AS A ON A.artist_id = AA.artist_id
+WHERE PC.patron_email IN (
+   SELECT P.email
+   FROM (Patron AS P JOIN Patron_Checksout_Item AS PC ON P.email = PC.patron_email
+   JOIN Media AS M ON PC.inventory_id = M.inventory_id
+   JOIN Album AS A ON M.license = A.license)
+   GROUP BY P.email
+   HAVING COUNT(A.license) >
+   (SELECT AVG(Album_count)
+   FROM (SELECT P.email, COUNT(A.license) AS Album_count
+   FROM (Patron AS P JOIN Patron_Checksout_Item AS PC ON P.email = PC.patron_email
+   JOIN Media AS M ON PC.inventory_id = M.inventory_id
+   JOIN Album AS A ON M.license = A.license)
+   GROUP BY P.email))
+);
+
+

@@ -1,0 +1,40 @@
+//Part II Section 2 - DATA FILES
+
+The folder "CSV FILES" contains 23 CSV files. Each of these files contains the data to be loaded into the database. 
+In order to load the data into the database using SQLite, the instructions are as follows:
+
+1. In the toolbar, go to "Tools".
+2. In the dropdown, choose "Import".
+3. In "Table to import to", choose "LibraryDatabase" as the database, and then choose the table you wish 
+   to import to. Click continue.
+4. In "Data source to import from", choose "CSV" as the data source type. For the options, choose the 
+   input file corresponding to the table you are importing to (see list below), and a text encoding of
+   "UTF-8". Click done.
+
+A complete list of tables and their corresponding data file:
+
+Table -> Data File
+---------------------------------------
+Current_Inventory -> Current_Inventory
+Items_Ordered -> Items_Ordered
+Items_Entered_Into_Current_Inventory -> Items_Entered_Into_Current_Inventory
+Patron -> Patron
+Library_Card -> Library_Card
+Patron_Checksout_Item -> Patron_Checksout_Item
+Patron_Returns_Item -> Patron_Returns_Item
+Equipment -> Equipment
+Printer -> Printer
+Computer -> Computer
+Media -> Media
+Artist -> Artist
+Album -> Album
+Track -> Track
+Artist_Authors_Album -> Artist_Authors_Album
+Author -> Author
+Audiobook -> Audiobook
+Author_Writes_Audiobook -> Author_Writes_Audiobook
+Director -> Director
+Actor -> Actor
+Movie -> Movie
+Actors_Star_In_Movies -> Actor_Acts_In_Movie
+Director_Directs_Movie -> Director_Directs_Movie
