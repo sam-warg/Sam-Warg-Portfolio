@@ -1,0 +1,406 @@
+---
+title: "Practice Project Report"
+author: "Chirag Ghosh, Ryan Marshall, Sam Warg"
+date: "2023-01-22"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Intro
+
+For this analysis, we consider the nycflights13 data set, containing observations on all flights departing the three major New York City Airports - JFK, Newark, and LaGuardia - in 2013. The research goal for this project was to discover insights regarding flight delays, and to provide any suggestions to the organization responsible for mantaining these airports - The Port Authority of New York and New Jersey.
+
+## Data 
+
+First, we must load the nycflights13 package to access our data, along with other packages that will be used in this analysis. 
+
+```{r load packages, message=FALSE, warning=FALSE}
+library(nycflights13)
+library(skimr)
+library(tidyverse)
+library(ggplot2)
+library(lubridate)
+library(janitor)
+library(caret)
+library(MASS)
+library(Hmisc)
+```
+
+The data set includes a total of five tables. The core of this analysis will be based on the **flights** table, which includes the on-time data for all flights departing the 3 NYC airports in 2013. To help us further gain insights, we have hourly meteorological data for the 3 airports from the **weather** table, metadata on the planes which carry the flights from the **planes** table, metadata about airports, including the 3 NYC airports as well as ones that they fly to from the **airports** table, and finally the full names of airline carriers, which are abbreviated in the flights table, from the **airlines** table. 
+
+From this data set, we will primarily be considering the **weather** and **planes** supporting data, in addition to the core **flights** data. We will merge these tables to a final data set, describing the flight data along with the type of plane carrying that flight and the weather at the hour of scheduled departure. Notably, there are some missing weather observations, as well as some plane tail numbers that don't show up in the **planes** table. For this reason, we will use left joins for the flights data, to ensure that we keep all flights even if they are missing weather and/or plane metadata.
+
+```{r assemble data set}
+new_dat <- flights %>%
+  dplyr::select(-c(day, month, year, hour)) %>% # Remove redundant columns before the join
+  left_join(weather, by = c("origin", "time_hour")) %>% 
+  left_join(planes, by = 'tailnum') %>% 
+  rename(year_manufactured = year.y)  # Make clear that "year" from planes table refers to manufacture year, not year of flight 
+```
+
+In this data set, we have the departure delay in minutes. We are most interested in flights that see significant delays which will most impact travelers. For this reason, we define a new binary column indicating whether we see a delay of 20 minutes or greater, or if the flight was cancelled entirely. Additionally, we would like to consider the day of the week when flights are scheduled, so we will add this as a new column as well. Finally, we could see that a set of 8 airlines dominate these flights (93% of all flights being carried by the top 8 airlines), we will recode flights that come from any carrier other than these top 8 as "Other" to avoid consideration of airlines with a minuscule number of observations. 
+
+```{r transform data}
+# top 9 carriers = 97% of flights
+top_carriers <- new_dat %>%
+  group_by(carrier) %>%
+  count %>% 
+  arrange(desc(n)) %>%
+  head(8) %>%
+  pull(carrier)
+
+new_dat <- new_dat %>%
+  mutate(day_of_week = factor(lubridate::wday(time_hour, label=T), ordered=F),
+         delayed = dep_delay >= 20 | is.na(dep_time),
+         carrier = ifelse(carrier %in% top_carriers, carrier, "Other"))
+View(new_dat)
+```
+
+## Exploratory Data Analysis
+
+Before going into deeper analysis of specific data sets, some preliminary charts and graphs were made. These help us get better idea of our response variable, dep_delay. Initial trends can be spotted and most importantly the right questions can be developed. The first thing departure delays was compared to was time. More specifically, delays throughout the day and the year. This first plot immediately shows a trend throughout the day.  
+
+```{r, warning=FALSE}
+hour_hist <- ggplot(new_dat, aes(x=factor(hour), y=dep_delay)) + stat_summary(fun.y="mean", geom="bar", color = 'black' ,fill = c('pink'))+ theme(aspect.ratio=1)
+print(hour_hist + ggtitle("Average Delay in Minutes by Hour") + labs(x= "Hours", y="Delay (minutes)"))
+```
+.  
+One of the most obvious trends for delays is that it increases hour by hour from 5am and peaks between 7-9pm. We can now ask does this happen due to chance, human error or other factors. Further research finds that flight schedules and delays are cascading. Meaning a delayed flight at the beginning of the day can effect the later ones which we can see. Then we can dive into if weather factors are effecting these flights throughout the day as well. Next, we look at delays through the year.  
+
+
+```{r, warning=FALSE}
+month_hist <- ggplot(new_dat, aes(x=factor(month), y=dep_delay)) + stat_summary(geom="bar", color = 'black' ,fill = c('lightblue'))+ theme(aspect.ratio=1)
+print(month_hist + ggtitle("Average Delay in Minutes by Month") + labs(x= "Months", y="Delay (minutes)"))
+```
+.  
+The spike in June, July and December also indicate weather could be a reason for delays although they have vastly different weather in these two parts of the year.  
+
+The next part of our exploratory data analysis involved the weather variables. To decide which variables could be removed because they are highly correlated with another, a correlation matrix was fit to the numeric variables from the weather dataset.
+
+```{r}
+num_weather <- dplyr::select(new_dat, c("temp", "dewp", "humid", "wind_dir", 
+                                         "wind_speed", "wind_gust", "precip", "pressure", "visib"))
+corr_matrix <- rcorr(as.matrix(num_weather))
+corr_matrix[1]
+```
+From this, it can be seen that the wind_speed and wind_gust variables are highly correlated with one another, with a correlation coefficient of about 0.88. 
+
+``` {r, warning = FALSE}
+b <- coef(lm(wind_speed ~ wind_gust, data = new_dat))[1]
+m <- coef(lm(wind_speed ~ wind_gust, data = new_dat))[2]
+ggplot(new_dat, aes(wind_gust, wind_speed)) + geom_point() + 
+  ggtitle("Wind Speed vs Wind Gust") + xlab("Wind Gust (mph)") + 
+  ylab("Wind Speed (mph)") +
+  geom_abline(intercept = b, slope = m, colour = "red")
+```
+
+This plot confirms what was determined above. When the wind gust is high, so is the wind speed. Additionally, there is a lot less missing data for the wind_speed variable than the wind_gust variable; therefore, we can confidently exclude the wind_gust variable from modeling, reducing dimensionality.
+
+There are also some other variables that have high correlation with one another. Those are the variables representing temperature, dewpoint, and humidity. Though each are related to one another, they all represent different characteristics regarding the weather. Due to this, decisions to keep or remove these predictors was determined later in the modeling process.
+
+The next step of the exploratory data analysis for the weather data was determining weather or not we see a relationship between the different weather variables and the predictor dep_delay. To do so, bar graphs were fit with the predictor on the x-axis and dep_delay on the y-axis.
+
+```{r}
+temp_dat <- new_dat
+# Creates temporary data frame to produce the bar graphs
+```
+
+```{r}
+temp_dat$wind_speed_group <- cut(temp_dat$wind_speed, breaks = c(seq(5, 45, by = 5)), 
+                       labels = c("< 9", "10-14", "15-19", "20-24", "25-29", "30-34", "35-39", "40+"))
+# Groups wind speed into categories
+wind_speed_delays <- temp_dat %>% mutate(delayed = dep_delay >= 20 | is.na(dep_time)) %>%
+   tabyl(wind_speed_group, delayed)
+# Creates table counting number of delayed and not delayed flights in each group
+colnames(wind_speed_delays) <- c("wind_speed", "not_delayed", "delayed")
+wind_speed_delays <- wind_speed_delays %>% mutate(percent_delayed = delayed / (delayed + not_delayed))
+# Calculates percent of flights delayed in each group
+
+ggplot(wind_speed_delays, aes(wind_speed, percent_delayed, fill = TRUE)) + 
+  geom_col(colour = "black") + 
+  scale_fill_manual(values = "green") +
+  xlab("Wind Speed at Takeoff (mph)") + ylab("Percent of Flights Delayed") + 
+  ggtitle("Percentage of Flights Delayed by Wind Speed") + theme(legend.position = "none") +
+  theme(axis.text=element_text(size=15), axis.title=element_text(size=15), 
+        plot.title=element_text(size=15))
+
+```
+
+The bar graph shows an increase in proportion of flights delayed for each wind speed group below 35 mph, but then decreases for the remaining categories. This is likely attributed to the fact that flights are more often cancelled than delayed in extreme winds. It can be concluded that wind_speed has a lot of predictive power and can be included in modeling.
+
+```{r}
+temp_dat$temp_group <- cut(temp_dat$temp, breaks = c(seq(10, 110, by = 20)), 
+                                        labels = c("< 29", "30-49", "50-69", "70-89", "90+"))
+# Groups temperature into categories
+temp_delays <- temp_dat %>% mutate(delayed = dep_delay >= 20 | is.na(dep_time)) %>%
+  tabyl(temp_group, delayed)
+# Creates table counting number of delayed and not delayed flights in each group
+colnames(temp_delays) <- c("temp", "not_delayed", "delayed")
+temp_delays <- temp_delays %>% mutate(percent_delayed = delayed / (delayed + not_delayed))
+# Calculates percent of flights delayed in each group
+
+ggplot(temp_delays, aes(temp, percent_delayed, fill = TRUE)) + 
+  geom_col(colour = "black") + 
+  scale_fill_manual(values = "red") +
+  xlab("Temperature at Takeoff (Degrees Fahrenheit)") + ylab("Percent of Flights Delayed") + 
+  ggtitle("Percentage of Flights Delayed by Temperature") + theme(legend.position = "none") +
+  theme(axis.text=element_text(size=16), axis.title=element_text(size=16), 
+        plot.title=element_text(size=16))
+```
+
+This bar graph does not show as strong of a relationship between temp and dep_delay; however, there is a slightly higher proportion of delays in extremely cold and hot temperatures. This variable could still be considered in a model.
+
+```{r}
+temp_dat$dewp_group <- cut(new_dat$dewp, breaks = c(seq(-10, 80, by = 15)), 
+                                  labels = c("< 4", "5-19", "20-34", "35-49", "50-64", "65+"))
+# Groups dewpoint into categories
+dewp_delays <- temp_dat %>% mutate(delayed = dep_delay >= 20 | is.na(dep_time)) %>%
+  tabyl(dewp_group, delayed)
+# Creates table counting number of delayed and not delayed flights in each group
+colnames(dewp_delays) <- c("dewp", "not_delayed", "delayed")
+dewp_delays <- dewp_delays %>% mutate(percent_delayed = delayed / (delayed + not_delayed))
+# Calculates percent of flights delayed in each group
+
+ggplot(dewp_delays, aes(dewp, percent_delayed, fill = TRUE)) + 
+  geom_col(colour = "black") + 
+  scale_fill_manual(values = "blue") +
+  xlab("Dewpoint at Takeoff (Degrees Fahrenheit)") + ylab("Percent of Flights Delayed") + 
+  ggtitle("Percentage of Flights Delayed by Dewpoint") + theme(legend.position = "none") +
+  theme(axis.text=element_text(size=16), axis.title=element_text(size=16), 
+        plot.title=element_text(size=16))
+```
+
+This plot shows that in cases where the dewpoint is high, the percent of flights delayed is also high. This variable appears to have a similar relationship as the temperature variable, which explains the high correlation between the two.
+
+```{r}
+temp_dat$humid_group <- cut(temp_dat$humid, breaks = c(seq(0, 100, by = 20)), 
+                                  labels = c("< 19", "20-39", "40-59", "60-79", "80+"))
+# Groups dewpoint into categories
+humid_delays <- temp_dat %>% mutate(delayed = dep_delay >= 20 | is.na(dep_time)) %>%
+  tabyl(humid_group, delayed)
+# Creates table counting number of delayed and not delayed flights in each group
+colnames(humid_delays) <- c("humid", "not_delayed", "delayed")
+humid_delays <- humid_delays %>% mutate(percent_delayed = delayed / (delayed + not_delayed))
+# Calculates percent of flights delayed in each group
+
+ggplot(humid_delays, aes(humid, percent_delayed, fill = TRUE)) + 
+  geom_col(colour = "black") + 
+  scale_fill_manual(values = "green") +
+  xlab("Humidity at Takeoff (%)") + ylab("Percent of Flights Delayed") + 
+  ggtitle("Percentage of Flights Delayed by Humidity") + theme(legend.position = "none") +
+  theme(axis.text=element_text(size=16), axis.title=element_text(size=16), 
+        plot.title=element_text(size=16))
+```
+
+A higher humidity appears to be correlated with a larger proportion of flights being delayed. This is also consistent with the temperature and dewpoint variables. 
+
+```{r}
+temp_dat$wind_dir_group <- cut(temp_dat$wind_dir, breaks = c(seq(0, 360, by = 45)), 
+                                       labels = c("0-44", "45-89", "90-134", "135-179", "180-224", 
+                                                  "225-269", "270-314", "315-360"))
+# Groups wind direction into categories
+wind_dir_delays <- temp_dat %>% mutate(delayed = dep_delay >= 20 | is.na(dep_time)) %>%
+  tabyl(wind_dir_group, delayed)
+# Creates table counting number of delayed and not delayed flights in each group
+colnames(wind_dir_delays) <- c("wind_dir", "not_delayed", "delayed")
+wind_dir_delays <- wind_dir_delays %>% mutate(percent_delayed = delayed / (delayed + not_delayed))
+# Calculates percent of flights delayed in each group
+
+ggplot(wind_dir_delays, aes(wind_dir, percent_delayed, fill = TRUE)) + 
+  geom_col(colour = "black") + 
+  scale_fill_manual(values = "red") +
+  xlab("Wind Direction at Takeoff (degrees)") + ylab("Percent of Flights Delayed") + 
+  ggtitle("Percentage of Flights Delayed by Wind Direction") + theme(legend.position = "none") +
+  theme(axis.text=element_text(size=11), axis.title=element_text(size=14), 
+        plot.title=element_text(size=14))
+```
+
+An interesting pattern appears on this graph. It appears as if a lower percentage of flights are delayed when the wind is blowing between 90 degrees and 180 degrees. This may be attributed to the direction that the runways at these airports are set up. This could be an interesting variable to use in a model, as it could give valuable insights into potential delays.
+
+```{r}
+temp_dat$precip_group <- cut(temp_dat$precip, breaks = c(seq(0, 1.25, by = 0.25)), 
+                                       labels = c(" < 0.24", "0.25-0.49", "0.50-0.74", "0.75-0.99", "1.00+"))
+# Groups precipitation into categories
+precip_delays <- temp_dat %>% mutate(delayed = dep_delay >= 20 | is.na(dep_time)) %>%
+  tabyl(precip_group, delayed)
+# Creates table counting number of delayed and not delayed flights in each group
+colnames(precip_delays) <- c("precip", "not_delayed", "delayed")
+precip_delays <- precip_delays %>% mutate(percent_delayed = delayed / (delayed + not_delayed))
+# Calculates percent of flights delayed in each group
+
+ggplot(precip_delays, aes(precip, percent_delayed, fill = TRUE)) + 
+  geom_col(colour = "black") + 
+  scale_fill_manual(values = "blue") +
+  xlab("Precipitation at Takeoff (in.)") + ylab("Percent of Flights Delayed") + 
+  ggtitle("Percentage of Flights Delayed by Precipitation") + theme(legend.position = "none") +
+  theme(axis.text=element_text(size=14), axis.title=element_text(size=14), 
+        plot.title=element_text(size=14))
+```
+
+As one would expect, the more precipitation that occurs, the higher the percentage of flights that are delayed. This would definitely be useful in the modeling stage.
+
+```{r}
+temp_dat$pressure_group <- cut(temp_dat$pressure, breaks = c(seq(975, 1055, by = 20)), 
+                                    labels = c("< 994", "995-1014", "1015-1034", "1035+"))
+# Groups pressure into categories
+pressure_delays <- temp_dat %>% mutate(delayed = dep_delay >= 20 | is.na(dep_time)) %>%
+  tabyl(pressure_group, delayed)
+# Creates table counting number of delayed and not delayed flights in each group
+colnames(pressure_delays) <- c("pressure", "not_delayed", "delayed")
+pressure_delays <- pressure_delays %>% mutate(percent_delayed = delayed / (delayed + not_delayed))
+# Calculates percent of flights delayed in each group
+
+ggplot(pressure_delays, aes(pressure, percent_delayed, fill = TRUE)) + 
+  geom_col(colour = "black") + 
+  scale_fill_manual(values = "green") +
+  xlab("Pressure at Takeoff (millibars)") + ylab("Percent of Flights Delayed") + 
+  ggtitle("Percentage of Flights Delayed by Pressure") + theme(legend.position = "none") +
+  theme(axis.text=element_text(size=16), axis.title=element_text(size=16), 
+        plot.title=element_text(size=16))
+```
+
+It appears as if pressure has a lot of predictive value, as an increase in pressure very clearly results in a decrease in percent of flights delayed. This should be considered in model selection.
+
+## Data Modelling
+
+Using some of the associations we found in the exploratory phase, we would now like to fit some models that will help in predicting flight delays as well as provide insight into how these features impact delay times. For this project, we will fit two types of models. First we will use a linear model to predict delay time as a continuous response. For the other model, we will use logistic regression to predict whether or not we will see a significant delay (20 minutes or greater delay time) or flight cancellation.
+
+First, we will reduce the data set down to include only the candidate features we have identified to use as predictors, in addition to the response variables. These candidates are wind speed, wind direction, temperature, visibility, hour of day, flight distance, carrier, airport of origin, precipitation, humidity, pressure, and day of the week.
+
+```{r data set reduction}
+# Select features to be included in the model
+features <- new_dat %>% 
+  dplyr::select(delayed, dep_delay, wind_speed, wind_dir, temp, visib, hour, distance, carrier, origin, precip, humid, pressure, day_of_week, dewp)
+```
+
+In the model fitting process, it is important to evaluate the out of sample predictive power of models. For this reason, we will split the data into a train and test set, with 70% of observations used for training and the remaining 30% for testing. 
+
+```{r train test split}
+# Add id column
+features$id <- 1:nrow(features)
+
+# Split data for testing and drop id column
+train <- slice_sample(features, prop = 0.7)
+test  <- anti_join(features, train, by = 'id')
+train <- dplyr::select(train, -id)
+test <- dplyr::select(test, -id)
+```
+
+
+From our EDA some variables and points were already transformed, removed or deemed insignificant. Narrowing the predictors, we can now also run stepwise AIC to see if the remaining variables are all significant. We run both forward and backward to see if they result in the same model. 
+```{r}
+# "lower" and "upper" models
+null = lm(dep_delay ~ 1, data = na.omit(train))
+full = lm(dep_delay ~ ., data = na.omit(train))
+
+# Forward search starting from the null model
+stepAIC(null, scope = list(lower = null, upper = full),
+        direction = "forward", k = 2)
+
+# Backward elimination starting from the full model
+stepAIC(full, scope = list(lower = null, upper = full),
+        direction = "backward", k = 2)
+```
+After running the function we see that the full model in fact gives us the lowest AIC score meaning this model fits the data best. 
+
+**Linear regression**
+
+Fitting this model we get:  
+```{r}
+linear.mod = lm(formula = dep_delay ~ distance + hour + dewp + wind_speed + 
+    precip + pressure + visib + origin * wind_dir, data = train)
+summary(linear.mod)
+```
+From the summary we interpret the coefficients as such:
+
+While holding all other predictors constant, a one unit increase in:  
+- Distance changes delay time by a non-negligible amount.  
+- Hour increases delay time by 1.5 minutes.  
+- Dew point increases delay time by 0.14 minutes.  
+- Wind speed increases delay time by 0.26 minutes.  
+- Precipitation increases delay time by 60.3 minutes.  
+- Pressure decreases delay time by 0.35 minutes.  
+- Visibility decreases delay time by 0.14 minutes.  
+
+While informative, many of these variables are with respect to each other. As we can see with our interaction term, some of these variables can be dependent on another and so the values may not exactly calculate the delay by simply plugging in a value. However, these values can serve to givethe Port Authority an idea about the amount/severity of a delay from these variables.
+
+We would also like to evaluate the performance of this model on out of sample prediction. To evaluate this, we will predict on the test set and report the root mean squared error (RMSE).
+
+```{r predict lm}
+# Predict on the test set
+pred.lm <- predict.lm(linear.mod, newdata = test)
+
+# Report RMSE
+rmse <- sqrt(mean((pred.lm - test$dep_delay)^2, na.rm=TRUE))
+print(paste("RMSE for prediction on the test set =", round(rmse, 3)))
+```
+From all the tested models, our final model was able to produce the best RMSE value!  
+
+**Logistic regression**
+
+In the interest of predicting significant delays/cancellations, we will also use logistic regression to predict a binary response. This model will predict the value "delayed" column, which again takes the value of "True" if the departure delay is at least 20 minutes or the departure time is *NA*, and takes the value "False" otherwise. 
+
+For this model, we will use a subset of the features that we have found to be associated with delays. Using only a subset of these features, rather than all of them, is necessary to eliminate issues of collinearity among predictors. The set of predictors will include wind speed, visibility, hour, distance, precipitation, day of week, and carrier. We will also include an interaction term between wind direction and origin, in order to account for the differences in how wind direction may impact delays across different airports, which will have different directions of their runways. 
+
+The model will be fit on the training set, and evaluated for accuracy on the test set. Here, we will fit the model and display the model summary.
+
+```{r fit logistic model}
+# Fit logistic model and print summary
+logistic.mod <- glm(delayed ~ wind_speed  + wind_dir:origin  + visib + hour + distance + precip  + day_of_week + carrier, family = "binomial", data = train)
+print(summary(logistic.mod))
+```
+
+Noticeably, all of the predictors are deemed significant based on a 0.05 p-value cutoff. The largest effect size in this model comes from precipitation, while the next 11 most impactful predictors are dummy variables for either carriers of day of the week.
+
+Next, we will use this model to predict on the test set, and evaluate performance. 
+
+```{r predict logistic}
+# Predict on out of sample 
+pred <- predict.glm(logistic.mod, newdata = test, type="response")
+```
+
+Now that we have the predicted responses from this model, we will assign each observation to either True or False, and compare this to the actual class labels from the test set. Here, we will use 0.5 as a cutoff, categorizing predicted responses above that level as "True" (predicting there will be a significant delay/cancellation) and responses below 0.5 as "False."
+
+We will then produce a confusion matrix of the predicted/actual responses to evaluate model performance.
+
+```{r logistic conf matrix v1}
+# Get predicted classes
+pred_class <- factor(ifelse(pred>0.5,  "TRUE", "FALSE"), levels = c("TRUE", "FALSE"))
+# Recode actual class as
+actual_class <- factor(test$delayed, levels= c("TRUE", "FALSE"))
+
+#create confusion matrix
+confusionMatrix(pred_class, actual_class)
+```
+
+At first glance, this model seems to perform well with an overall accuracy of 79.4%. Upon further inspection, this model is actually not very useful. Only about 3.4% of observations are predicted to see significant delays. In the original data set, we see just over 21% of all flights being delayed/cancelled. The model leans too heavily towards predicting no delays, and due to the imbalanced classes of the original data this gives the impression of an accurate model. In reality, the predictions are only correct 9.4% of the time in events where the flight is delayed, which are the observations we care most about.
+
+To rectify this problem, we will lower the previously used threshold of 0.5 for predicting a delay. We will instead use a threshold of 0.21, which is the actual level proportion of flights that see significant delay or cancellation.
+
+
+```{r logistic conf matrix v2}
+# Get predicted classes
+pred_class <- factor(ifelse(pred>0.21,  "TRUE", "FALSE"), levels = c("TRUE", "FALSE"))
+# Recode actual class as
+actual_class <- factor(test$delayed, levels= c("TRUE", "FALSE"))
+
+#create confusion matrix
+confusionMatrix(pred_class, actual_class)
+```
+
+With this new threshold, we have lowered the overall accuracy of the model. This can be viewed as a tradeoff to help us better predict the event we care about though. While the overall model accuracy has been lowered to 64%, we are now 67.7% accurate in situations where the flight is truly delayed. This is reflected as well in the "Balanced Accuracy" metric, which takes the average of accuracy when flights are delayed, and accuracy when they aren't delayed. The balanced accuracy using the 0.5 threshold was only 53.8%, but this has now been raised to 65.5%.  
+
+## Insights
+Through this analysis of all the predictors and various conclusions, we have some reccomendations. While we cannot control the weather, it could be beneficial to focus on scheduling flights better by perhaps lowering the number of flights in the morning to avoid the carry over delays that are occurring. Additionally, use some of the conclusions about the weather to better estimate the severity of how much a flight will be delayed! This in turn can effect when flights are scheduled throughout a day and even the year while also allowing to be able to more precisely inform passengers of expected departure delays.  
+
+
+
+
+
+
+
+
+
+
+
